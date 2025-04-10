@@ -13,6 +13,7 @@ body {
     border: 1px solid #000;
     background-color: #222; /* Dark background for contrast */
     overflow: hidden; /* Ensure SVG clipping */
+    cursor: none; /* Hide default cursor when custom cursor is active */
 }
 
 #game-svg {
@@ -76,4 +77,26 @@ body {
         opacity: 0;
         transform: scale(1.5); /* Optional: scale up slightly as it fades */
     }
+}
+
+/* Custom Cursor Styles */
+#custom-cursor {
+    pointer-events: none; /* Ensure cursor doesn't block clicks */
+    opacity: 0; /* Hide by default */
+    transition: opacity 0.1s ease;
+}
+
+#custom-cursor.active {
+    opacity: 1; /* Show when mouse is inside game container */
+}
+
+.cursor-circle {
+    fill: rgba(255, 255, 255, 0.2);
+    stroke: white;
+    stroke-width: 1.5;
+}
+
+.cursor-line {
+    stroke: white;
+    stroke-width: 1.5;
 }

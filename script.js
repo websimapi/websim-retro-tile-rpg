@@ -10,6 +10,7 @@ const svg = document.getElementById('game-svg');
 const gameContainer = document.getElementById('game-container');
 const devInfo = document.getElementById('dev-info');
 let clickMarkerGroup; // Group to hold click markers
+let customCursor; // Element for custom cursor
 
 const room = new WebsimSocket();
 
@@ -43,21 +44,16 @@ function tileToScreen(x, y) {
     return { x: screenX, y: screenY };
 }
 
-// Convert screen pixel coordinates to tile coordinates (approximate)
-function screenToTile(screenX, screenY) {
-    // Adjust for camera offset (center view)
-    const gameRect = svg.getBoundingClientRect();
-    const viewCenterX = gameRect.width / 2;
-    const viewCenterY = gameRect.height / 2; // Center roughly on tile height
-
-    const isoX = (screenX - viewCenterX);
-    const isoY = (screenY - viewCenterY);
-
-
+// Convert screen pixel coordinates to tile coordinates (improved)
+function screenToTile(screenX, screenY, worldTransform) {
+    // Adjust for world transform
+    const adjustedX = screenX - worldTransform.e;
+    const adjustedY = screenY - worldTransform.f;
+    
     // Inverse isometric projection
-    const tileX = Math.round((isoX / (TILE_WIDTH / 2) + isoY / (TILE_HEIGHT / 2)) / 2);
-    const tileY = Math.round((isoY / (TILE_HEIGHT / 2) - isoX / (TILE_WIDTH / 2)) / 2);
-
+    const tileX = Math.floor((adjustedX / (TILE_WIDTH / 2) + adjustedY / (TILE_HEIGHT / 2)) / 2);
+    const tileY = Math.floor((adjustedY / (TILE_HEIGHT / 2) - adjustedX / (TILE_WIDTH / 2)) / 2);
+    
     return { x: tileX, y: tileY };
 }
 
@@ -101,8 +97,8 @@ function drawWorld() {
         svg.appendChild(tilesGroup);
     }
 
-    // Add click listener to the tiles group for movement
-    tilesGroup.addEventListener('click', handleMapClick);
+    // Add click listener to the SVG for movement
+    svg.addEventListener('click', handleMapClick);
 
     // Create a group for click markers, drawn above tiles but below players
     clickMarkerGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
@@ -111,6 +107,85 @@ function drawWorld() {
          svg.insertBefore(clickMarkerGroup, playersGroup);
     } else {
          svg.appendChild(clickMarkerGroup);
+    }
+    
+    // Create and initialize custom cursor
+    initializeCustomCursor();
+}
+
+// Create custom cursor
+function initializeCustomCursor() {
+    // Create cursor group
+    customCursor = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    customCursor.id = 'custom-cursor';
+    
+    // Create cursor circle
+    const cursorCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    cursorCircle.setAttribute('cx', 0);
+    cursorCircle.setAttribute('cy', 0);
+    cursorCircle.setAttribute('r', 5);
+    cursorCircle.setAttribute('class', 'cursor-circle');
+    
+    // Create cursor crosshair
+    const crosshairH = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    crosshairH.setAttribute('x1', -7);
+    crosshairH.setAttribute('y1', 0);
+    crosshairH.setAttribute('x2', 7);
+    crosshairH.setAttribute('y2', 0);
+    crosshairH.setAttribute('class', 'cursor-line');
+    
+    const crosshairV = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    crosshairV.setAttribute('x1', 0);
+    crosshairV.setAttribute('y1', -7);
+    crosshairV.setAttribute('x2', 0);
+    crosshairV.setAttribute('y2', 7);
+    crosshairV.setAttribute('class', 'cursor-line');
+    
+    // Add cursor elements to group
+    customCursor.appendChild(cursorCircle);
+    customCursor.appendChild(crosshairH);
+    customCursor.appendChild(crosshairV);
+    
+    // Add cursor to SVG
+    svg.appendChild(customCursor);
+    
+    // Mouse move event listener for cursor
+    svg.addEventListener('mousemove', updateCustomCursorPosition);
+    
+    // Add events for cursor visibility
+    gameContainer.addEventListener('mouseenter', () => {
+        customCursor.classList.add('active');
+    });
+    
+    gameContainer.addEventListener('mouseleave', () => {
+        customCursor.classList.remove('active');
+    });
+}
+
+// Update custom cursor position
+function updateCustomCursorPosition(event) {
+    const svgRect = svg.getBoundingClientRect();
+    const mouseX = event.clientX - svgRect.left;
+    const mouseY = event.clientY - svgRect.top;
+    
+    // Update cursor position
+    customCursor.setAttribute('transform', `translate(${mouseX}, ${mouseY})`);
+    
+    // Update tile highlight info in dev panel
+    if (customCursor.classList.contains('active')) {
+        const tilesGroup = svg.getElementById('tiles-group');
+        const worldTransform = tilesGroup ? tilesGroup.transform.baseVal.consolidate().matrix : { e: 0, f: 0 };
+        const tileUnderCursor = screenToTile(mouseX, mouseY, worldTransform);
+        
+        // Clamp to grid bounds
+        const cursorTileX = Math.max(0, Math.min(GRID_SIZE_X - 1, tileUnderCursor.x));
+        const cursorTileY = Math.max(0, Math.min(GRID_SIZE_Y - 1, tileUnderCursor.y));
+        
+        const tileKey = `${cursorTileX},${cursorTileY}`;
+        const tileType = worldTiles[tileKey] || 'unknown';
+        
+        // Update dev info with cursor position
+        updateDevInfo(cursorTileX, cursorTileY, tileType);
     }
 }
 
@@ -206,11 +281,18 @@ function removePlayer(clientId) {
     delete players[clientId];
 }
 
-function updateDevInfo() {
-     const player = room.presence[room.clientId] || {};
-     const pos = `Pos: (${player.x ?? 'N/A'}, ${player.y ?? 'N/A'})`;
-     const peersCount = Object.keys(room.peers).length;
-     devInfo.textContent = `User: ${room.peers[room.clientId]?.username || 'Connecting...'} | ${pos} | Peers: ${peersCount}`;
+function updateDevInfo(cursorTileX, cursorTileY, tileType) {
+    const player = room.presence[room.clientId] || {};
+    const pos = `Pos: (${player.x ?? 'N/A'}, ${player.y ?? 'N/A'})`;
+    const peersCount = Object.keys(room.peers).length;
+    let devText = `User: ${room.peers[room.clientId]?.username || 'Connecting...'} | ${pos} | Peers: ${peersCount}`;
+    
+    // Add cursor position if provided
+    if (cursorTileX !== undefined && cursorTileY !== undefined) {
+        devText += ` | Cursor: (${cursorTileX}, ${cursorTileY}) [${tileType}]`;
+    }
+    
+    devInfo.textContent = devText;
 }
 
 // --- Click Marker ---
@@ -263,22 +345,18 @@ function handleMapClick(event) {
     const clickX = event.clientX - svgRect.left;
     const clickY = event.clientY - svgRect.top;
 
-    // Get world transform offset to adjust click coords for tile calculation
+    // Get world transform
     const tilesGroup = svg.getElementById('tiles-group');
     const worldTransform = tilesGroup ? tilesGroup.transform.baseVal.consolidate().matrix : { e: 0, f: 0 };
 
-    // Adjust click coordinates based on the world transform for tile identification
-    const worldClickX = clickX - worldTransform.e;
-    const worldClickY = clickY - worldTransform.f; // Remove TILE_HEIGHT adjustment here for tile calculation
-
-    const targetTile = screenToTile(worldClickX, worldClickY);
+    // Convert screen position to tile position with improved function
+    const targetTile = screenToTile(clickX, clickY, worldTransform);
 
     // Clamp coordinates to grid bounds
     const targetX = Math.max(0, Math.min(GRID_SIZE_X - 1, targetTile.x));
     const targetY = Math.max(0, Math.min(GRID_SIZE_Y - 1, targetTile.y));
 
     console.log(`Clicked screen: (${clickX}, ${clickY}), Target Tile: (${targetX}, ${targetY})`);
-
 
     // Basic validation: don't move into water for now
     const targetTileKey = `${targetX},${targetY}`;
@@ -287,14 +365,16 @@ function handleMapClick(event) {
         return;
     }
 
-    // --- Add Click Marker ---
-    // Use the raw click coordinates relative to the SVG element for the marker position
-    createClickMarker(clickX, clickY);
-    // --- End Add Click Marker ---
+    // Calculate the screen center of the target tile for the marker
+    const targetScreenPos = tileToScreen(targetX, targetY);
+    
+    // Adjust position using the world transform
+    const markerScreenX = worldTransform.e + targetScreenPos.x;
+    const markerScreenY = worldTransform.f + targetScreenPos.y + TILE_HEIGHT; // Center on the tile visually
 
+    createClickMarker(markerScreenX, markerScreenY);
 
-    // Update presence - Simple direct move for now
-    // A more complex implementation would use targetX/Y and tick-based movement
+    // Update presence
     room.updatePresence({ x: targetX, y: targetY });
 }
 
