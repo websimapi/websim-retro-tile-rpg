@@ -1,4 +1,5 @@
 import { TilePathfinder, MovementManager } from './pathfinding.js';
+import { CharacterAnimator } from './animations.js';
 
 // --- Imports & Setup ---
 // WebsimSocket is globally available
@@ -291,9 +292,12 @@ function drawPlayer(clientId, presenceData, peerData) {
     const tilesGroup = svg.getElementById('tiles-group');
     const worldTransform = tilesGroup ? tilesGroup.transform.baseVal.consolidate().matrix : { e: 0, f: 0 };
 
-
     // Apply transform to move the player group
     playerGroup.setAttribute('transform', `translate(${worldTransform.e + drawX}, ${worldTransform.f + drawY})`);
+
+    if (!players[clientId].animator) {
+        players[clientId].animator = new CharacterAnimator(playerGroup);
+    }
 
     // Simple Z-ordering based on Y-coordinate (further back tiles drawn first)
     // This works because SVG renders elements later in the DOM on top.
@@ -388,6 +392,10 @@ async function initializeGame() {
 
         const pathfinder = new TilePathfinder(worldTiles, GRID_SIZE_X, GRID_SIZE_Y);
         const movementManager = new MovementManager(room);
+
+        if (players[room.clientId]) {
+            movementManager.setAnimator(players[room.clientId].animator);
+        }
 
         // Initial setup
         drawWorld(); // Draw the base map

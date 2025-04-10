@@ -108,7 +108,12 @@ export class MovementManager {
         this.currentPath = null;
         this.isMoving = false;
         this.moveInterval = null;
-        this.MOVE_DELAY = 300; // Time between moves in ms
+        this.MOVE_DELAY = 600; // Exact game tick timing
+        this.animator = null;
+    }
+
+    setAnimator(animator) {
+        this.animator = animator;
     }
 
     startMoving(path) {
@@ -118,6 +123,9 @@ export class MovementManager {
         
         this.currentPath = path;
         this.isMoving = true;
+        if (this.animator) {
+            this.animator.startWalkAnimation();
+        }
         this.processNextMove();
     }
 
@@ -127,6 +135,9 @@ export class MovementManager {
         if (this.moveInterval) {
             clearTimeout(this.moveInterval);
             this.moveInterval = null;
+        }
+        if (this.animator) {
+            this.animator.stopWalkAnimation();
         }
     }
 
