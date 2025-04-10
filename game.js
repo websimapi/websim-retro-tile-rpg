@@ -210,6 +210,9 @@ export class Game {
         const clickX = event.clientX - svgRect.left;
         const clickY = event.clientY - svgRect.top;
         
+        // Create click marker at the exact click position
+        this.world.createClickMarker(clickX, clickY);
+        
         // Convert screen coordinates to tile coordinates
         const targetTile = this.camera.screenToTile(clickX, clickY);
         
@@ -223,10 +226,6 @@ export class Game {
             console.log('Cannot walk on water!');
             return;
         }
-        
-        // Create click marker
-        const screenPos = this.world.tileToScreen(targetX, targetY);
-        this.world.createClickMarker(screenPos.x, screenPos.y);
         
         // Find path to target
         const path = this.pathfinder.findPath(
