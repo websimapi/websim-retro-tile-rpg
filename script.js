@@ -16,8 +16,6 @@ let clickMarkerGroup; // Group to hold click markers
 let customCursor; // Element for custom cursor
 
 const room = new WebsimSocket();
-const pathfinder = new TilePathfinder(worldTiles, GRID_SIZE_X, GRID_SIZE_Y);
-const movementManager = new MovementManager(room);
 
 // --- Game State ---
 let players = {}; // Local cache of player elements/data
@@ -39,6 +37,10 @@ for (let x = 0; x < GRID_SIZE_X; x++) {
         }
     }
 }
+
+// Initialize pathfinder after worldTiles is created
+const pathfinder = new TilePathfinder(worldTiles, GRID_SIZE_X, GRID_SIZE_Y);
+const movementManager = new MovementManager(room);
 
 // --- Event Handlers ---
 
