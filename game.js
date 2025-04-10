@@ -1,5 +1,6 @@
 import { TilePathfinder, MovementManager } from './pathfinding.js';
 import { CharacterAnimator } from './animations.js';
+import { IsometricRaycaster } from './raycast.js';
 
 export class Game {
     constructor(svg, gameContainer, devInfo) {
@@ -31,6 +32,9 @@ export class Game {
         this.pathfinder = new TilePathfinder(this.worldTiles, this.GRID_SIZE_X, this.GRID_SIZE_Y);
         this.movementManager = new MovementManager(this.room);
         
+        // Add raycaster
+        this.raycaster = new IsometricRaycaster(this.TILE_WIDTH, this.TILE_HEIGHT);
+        
         // Bind methods
         this.handleMapClick = this.handleMapClick.bind(this);
         this.updateCustomCursorPosition = this.updateCustomCursorPosition.bind(this);
@@ -44,9 +48,14 @@ export class Game {
         const tilesGroup = this.svg.getElementById('tiles-group');
         const worldTransform = tilesGroup ? tilesGroup.transform.baseVal.consolidate().matrix : { e: 0, f: 0 };
 
-        const targetTile = this.screenToTile(clickX, clickY, worldTransform);
-        const targetX = Math.max(0, Math.min(this.GRID_SIZE_X - 1, targetTile.x));
-        const targetY = Math.max(0, Math.min(this.GRID_SIZE_Y - 1, targetTile.y));
+        // Use raycaster to get precise tile coordinates
+        const targetTile = this.raycaster.raycastTile(
+            clickX, 
+            clickY, 
+            worldTransform,
+            this.GRID_SIZE_X,
+            this.GRID_SIZE_Y
+        );
 
         const currentPos = this.room.presence[this.room.clientId] || { x: 0, y: 0 };
         
@@ -54,13 +63,13 @@ export class Game {
         const path = this.pathfinder.findPath(
             currentPos.x, 
             currentPos.y,
-            targetX,
-            targetY
+            targetTile.x,
+            targetTile.y
         );
 
         if (path) {
-            // Show click marker
-            const targetScreenPos = this.tileToScreen(targetX, targetY);
+            // Convert target position to screen coordinates using raycaster
+            const targetScreenPos = this.raycaster.tileToScreen(targetTile.x, targetTile.y);
             const markerScreenX = worldTransform.e + targetScreenPos.x;
             const markerScreenY = worldTransform.f + targetScreenPos.y + this.TILE_HEIGHT;
             this.createClickMarker(markerScreenX, markerScreenY);
@@ -70,22 +79,37 @@ export class Game {
         }
     }
 
-    tileToScreen(x, y) {
-        const screenX = (x - y) * (this.TILE_WIDTH / 2);
-        const screenY = (x + y) * (this.TILE_HEIGHT / 2);
-        return { x: screenX, y: screenY };
-    }
-
-    screenToTile(screenX, screenY, worldTransform) {
-        // Adjust for world transform
-        const adjustedX = screenX - worldTransform.e;
-        const adjustedY = screenY - worldTransform.f;
+    updateCustomCursorPosition(event) {
+        const svgRect = this.svg.getBoundingClientRect();
+        const mouseX = event.clientX - svgRect.left;
+        const mouseY = event.clientY - svgRect.top;
         
-        // Inverse isometric projection
-        const tileX = Math.floor((adjustedX / (this.TILE_WIDTH / 2) + adjustedY / (this.TILE_HEIGHT / 2)) / 2);
-        const tileY = Math.floor((adjustedY / (this.TILE_HEIGHT / 2) - adjustedX / (this.TILE_WIDTH / 2)) / 2);
+        // Update cursor position
+        this.customCursor.setAttribute('transform', `translate(${mouseX}, ${mouseY})`);
         
-        return { x: tileX, y: tileY };
+        if (this.customCursor.classList.contains('active')) {
+            const tilesGroup = this.svg.getElementById('tiles-group');
+            const worldTransform = tilesGroup ? tilesGroup.transform.baseVal.consolidate().matrix : { e: 0, f: 0 };
+            
+            // Use raycaster for precise tile detection
+            const tileUnderCursor = this.raycaster.raycastTile(
+                mouseX, 
+                mouseY, 
+                worldTransform,
+                this.GRID_SIZE_X,
+                this.GRID_SIZE_Y
+            );
+            
+            // Clamp to grid bounds
+            const cursorTileX = Math.max(0, Math.min(this.GRID_SIZE_X - 1, tileUnderCursor.x));
+            const cursorTileY = Math.max(0, Math.min(this.GRID_SIZE_Y - 1, tileUnderCursor.y));
+            
+            const tileKey = `${cursorTileX},${cursorTileY}`;
+            const tileType = this.worldTiles[tileKey] || 'unknown';
+            
+            // Update dev info with cursor position
+            this.updateDevInfo(cursorTileX, cursorTileY, tileType);
+        }
     }
 
     drawWorld() {
@@ -100,7 +124,7 @@ export class Game {
             for (let y = 0; y < this.GRID_SIZE_Y; y++) {
                 const tileKey = `${x},${y}`;
                 const tileType = this.worldTiles[tileKey] || 'grass';
-                const pos = this.tileToScreen(x, y);
+                const pos = this.raycaster.tileToScreen(x, y);
 
                 const tile = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
                 const points = [
@@ -192,32 +216,6 @@ export class Game {
         });
     }
 
-    updateCustomCursorPosition(event) {
-        const svgRect = this.svg.getBoundingClientRect();
-        const mouseX = event.clientX - svgRect.left;
-        const mouseY = event.clientY - svgRect.top;
-        
-        // Update cursor position
-        this.customCursor.setAttribute('transform', `translate(${mouseX}, ${mouseY})`);
-        
-        // Update tile highlight info in dev panel
-        if (this.customCursor.classList.contains('active')) {
-            const tilesGroup = this.svg.getElementById('tiles-group');
-            const worldTransform = tilesGroup ? tilesGroup.transform.baseVal.consolidate().matrix : { e: 0, f: 0 };
-            const tileUnderCursor = this.screenToTile(mouseX, mouseY, worldTransform);
-            
-            // Clamp to grid bounds
-            const cursorTileX = Math.max(0, Math.min(this.GRID_SIZE_X - 1, tileUnderCursor.x));
-            const cursorTileY = Math.max(0, Math.min(this.GRID_SIZE_Y - 1, tileUnderCursor.y));
-            
-            const tileKey = `${cursorTileX},${cursorTileY}`;
-            const tileType = this.worldTiles[tileKey] || 'unknown';
-            
-            // Update dev info with cursor position
-            this.updateDevInfo(cursorTileX, cursorTileY, tileType);
-        }
-    }
-
     drawPlayer(clientId, presenceData, peerData) {
         const { x = 0, y = 0 } = presenceData || {}; // Default to 0,0 if no position
         const { username = 'Player', avatarUrl } = peerData || {}; // Use peer data
@@ -271,8 +269,8 @@ export class Game {
              }
         }
 
-        // Calculate screen position based on tile coordinates
-        const screenPos = this.tileToScreen(x, y);
+        // Calculate screen position based on tile coordinates using raycaster
+        const screenPos = this.raycaster.tileToScreen(x, y);
 
         // Adjust for player height (center bottom of sprite on tile center)
         const drawX = screenPos.x;
