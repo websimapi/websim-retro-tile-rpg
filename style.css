@@ -2,28 +2,27 @@ body {
     margin: 0;
     overflow: hidden;
     background-color: #333;
-    display: flex;
-    justify-content: center;
-    align-items: center;
+    width: 100vw;
     height: 100vh;
 }
 
 #game-container {
     position: relative;
-    border: 1px solid #000;
-    background-color: #222; /* Dark background for contrast */
-    overflow: hidden; /* Ensure SVG clipping */
-    cursor: none; /* Hide default cursor when custom cursor is active */
+    width: 100vw;
+    height: 100vh;
+    background-color: #222;
+    overflow: hidden;
+    cursor: none;
 }
 
 #game-svg {
+    width: 100%;
+    height: 100%;
     display: block;
-    /* Add perspective for potential future 3D transforms if needed */
-    /* perspective: 1000px; */
 }
 
 .tile {
-    stroke: #444; /* Grid lines */
+    stroke: #444; 
     stroke-width: 0.5;
 }
 
@@ -32,18 +31,18 @@ body {
 .tile-stone { fill: #888888; }
 
 .player {
-    transition: transform 0.5s linear; /* Smooth movement between tiles */
+    transition: transform 0.5s linear; 
     /* transform-origin: bottom center; */
 }
 
 .player-body {
-    fill: #d2a679; /* Skin tone */
+    fill: #d2a679; 
     stroke: #333;
     stroke-width: 1;
 }
 
 .player-head {
-    fill: #e0e0e0; /* Simple helmet/hair */
+    fill: #e0e0e0; 
     stroke: #333;
     stroke-width: 1;
 }
@@ -64,8 +63,8 @@ body {
     stroke: yellow;
     stroke-width: 3;
     fill: none;
-    pointer-events: none; /* Prevent marker from interfering with clicks */
-    animation: fadeOutScale 0.6s ease-out forwards; /* Animation name, duration, timing, and final state */
+    pointer-events: none; 
+    animation: fadeOutScale 0.6s ease-out forwards; 
 }
 
 @keyframes fadeOutScale {
@@ -75,19 +74,19 @@ body {
     }
     to {
         opacity: 0;
-        transform: scale(1.5); /* Optional: scale up slightly as it fades */
+        transform: scale(1.5); 
     }
 }
 
 /* Custom Cursor Styles */
 #custom-cursor {
-    pointer-events: none; /* Ensure cursor doesn't block clicks */
-    opacity: 0; /* Hide by default */
+    pointer-events: none; 
+    opacity: 0; 
     transition: opacity 0.1s ease;
 }
 
 #custom-cursor.active {
-    opacity: 1; /* Show when mouse is inside game container */
+    opacity: 1; 
 }
 
 .cursor-circle {

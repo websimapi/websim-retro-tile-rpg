@@ -1,6 +1,6 @@
 import { TilePathfinder, MovementManager } from './pathfinding.js';
 import { CharacterAnimator } from './animations.js';
-import { UIManager } from './ui.js';
+import { WorldChunkManager } from './world.js';
 
 export class Game {
     constructor(svg, gameContainer, devInfo) {
@@ -11,26 +11,13 @@ export class Game {
         this.players = {};
         this.TILE_WIDTH = 64;
         this.TILE_HEIGHT = 32;
-        this.GRID_SIZE_X = 20;
-        this.GRID_SIZE_Y = 20;
-        this.ui = new UIManager(svg);
-        this.worldTiles = {};
-        for (let x = 0; x < this.GRID_SIZE_X; x++) {
-            for (let y = 0; y < this.GRID_SIZE_Y; y++) {
-                const key = `${x},${y}`;
-                const noise = Math.random();
-                if (noise < 0.1) {
-                    this.worldTiles[key] = 'water';
-                } else if (noise < 0.2) {
-                    this.worldTiles[key] = 'stone';
-                } else {
-                    this.worldTiles[key] = 'grass';
-                }
-            }
-        }
-        this.pathfinder = new TilePathfinder(this.worldTiles, this.GRID_SIZE_X, this.GRID_SIZE_Y);
-        this.movementManager = new MovementManager(this.room);
-        
+        this.GRID_SIZE_X = 64; // Increased grid size
+        this.GRID_SIZE_Y = 64;
+        this.worldManager = new WorldChunkManager(this.TILE_WIDTH, this.TILE_HEIGHT);
+        this.viewDistance = 2; // Number of chunks to load around player
+        this.clickMarkerGroup = null;
+        this.customCursor = null;
+
         // Bind methods
         this.handleMapClick = this.handleMapClick.bind(this);
         this.updateCustomCursorPosition = this.updateCustomCursorPosition.bind(this);
@@ -44,12 +31,13 @@ export class Game {
         const tilesGroup = this.svg.getElementById('tiles-group');
         const worldTransform = tilesGroup ? tilesGroup.transform.baseVal.consolidate().matrix : { e: 0, f: 0 };
 
-        const targetTile = this.screenToTile(clickX, clickY);
+        const targetTile = this.screenToTile(clickX, clickY, worldTransform);
         const targetX = Math.max(0, Math.min(this.GRID_SIZE_X - 1, targetTile.x));
         const targetY = Math.max(0, Math.min(this.GRID_SIZE_Y - 1, targetTile.y));
 
         const currentPos = this.room.presence[this.room.clientId] || { x: 0, y: 0 };
         
+        // Find path to target
         const path = this.pathfinder.findPath(
             currentPos.x, 
             currentPos.y,
@@ -58,11 +46,13 @@ export class Game {
         );
 
         if (path) {
+            // Show click marker
             const targetScreenPos = this.tileToScreen(targetX, targetY);
-            this.ui.showClickMarker(
-                worldTransform.e + targetScreenPos.x,
-                worldTransform.f + targetScreenPos.y + this.TILE_HEIGHT/2
-            );
+            const markerScreenX = worldTransform.e + targetScreenPos.x;
+            const markerScreenY = worldTransform.f + targetScreenPos.y + this.TILE_HEIGHT;
+            this.createClickMarker(markerScreenX, markerScreenY);
+
+            // Start movement along path
             this.movementManager.startMoving(path);
         }
     }
@@ -73,10 +63,7 @@ export class Game {
         return { x: screenX, y: screenY };
     }
 
-    screenToTile(screenX, screenY) {
-        const tilesGroup = this.svg.getElementById('tiles-group');
-        const worldTransform = tilesGroup ? tilesGroup.transform.baseVal.consolidate().matrix : { e: 0, f: 0 };
-        
+    screenToTile(screenX, screenY, worldTransform) {
         // Adjust for world transform
         const adjustedX = screenX - worldTransform.e;
         const adjustedY = screenY - worldTransform.f;
@@ -92,22 +79,31 @@ export class Game {
         const tilesGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
         tilesGroup.id = 'tiles-group';
 
-        // Center the view roughly
-        const viewCenterX = this.svg.getAttribute('width') / 2;
-        const viewCenterY = this.svg.getAttribute('height') / 2 - this.TILE_HEIGHT * 5; // Offset up slightly
+        // Center view initially
+        const viewCenterX = this.svg.clientWidth / 2;
+        const viewCenterY = this.svg.clientHeight / 2 - this.TILE_HEIGHT * 5;
 
-        for (let x = 0; x < this.GRID_SIZE_X; x++) {
-            for (let y = 0; y < this.GRID_SIZE_Y; y++) {
-                const tileKey = `${x},${y}`;
-                const tileType = this.worldTiles[tileKey] || 'grass';
+        // Initially load chunks around center
+        const centerTileX = Math.floor(this.GRID_SIZE_X / 2);
+        const centerTileY = Math.floor(this.GRID_SIZE_Y / 2);
+        this.worldManager.updateVisibleChunks(centerTileX, centerTileY, this.viewDistance);
+
+        // Draw all loaded chunks
+        for (const chunkKey of this.worldManager.loadedChunks) {
+            const [chunkX, chunkY] = chunkKey.split(',').map(Number);
+            const chunk = this.worldManager.chunks.get(chunkKey);
+            
+            for (const tileKey in chunk) {
+                const [x, y] = tileKey.split(',').map(Number);
+                const tileType = chunk[tileKey];
                 const pos = this.tileToScreen(x, y);
 
                 const tile = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
                 const points = [
-                    { x: pos.x, y: pos.y + this.TILE_HEIGHT / 2 },                     // Top point
-                    { x: pos.x + this.TILE_WIDTH / 2, y: pos.y + this.TILE_HEIGHT },       // Right point
-                    { x: pos.x, y: pos.y + this.TILE_HEIGHT * 1.5 },                   // Bottom point
-                    { x: pos.x - this.TILE_WIDTH / 2, y: pos.y + this.TILE_HEIGHT }        // Left point
+                    { x: pos.x, y: pos.y + this.TILE_HEIGHT / 2 },
+                    { x: pos.x + this.TILE_WIDTH / 2, y: pos.y + this.TILE_HEIGHT },
+                    { x: pos.x, y: pos.y + this.TILE_HEIGHT * 1.5 },
+                    { x: pos.x - this.TILE_WIDTH / 2, y: pos.y + this.TILE_HEIGHT }
                 ].map(p => `${p.x},${p.y}`).join(' ');
 
                 tile.setAttribute('points', points);
@@ -117,10 +113,9 @@ export class Game {
                 tilesGroup.appendChild(tile);
             }
         }
-        // Apply centering transform
+
         tilesGroup.setAttribute('transform', `translate(${viewCenterX}, ${viewCenterY})`);
 
-        // Ensure tiles are added before players
         const playersGroup = this.svg.getElementById('players-group');
         if (playersGroup) {
             this.svg.insertBefore(tilesGroup, playersGroup);
@@ -131,8 +126,65 @@ export class Game {
         // Add click listener to the SVG for movement
         this.svg.addEventListener('click', this.handleMapClick);
 
-        // Add mouse move event listener for cursor
+        // Create a group for click markers, drawn above tiles but below players
+        this.clickMarkerGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        this.clickMarkerGroup.id = 'click-markers-group';
+        if (playersGroup) {
+             this.svg.insertBefore(this.clickMarkerGroup, playersGroup);
+        } else {
+             this.svg.appendChild(this.clickMarkerGroup);
+        }
+        
+        // Create and initialize custom cursor
+        this.initializeCustomCursor();
+    }
+
+    initializeCustomCursor() {
+        // Create cursor group
+        this.customCursor = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        this.customCursor.id = 'custom-cursor';
+        
+        // Create cursor circle
+        const cursorCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        cursorCircle.setAttribute('cx', 0);
+        cursorCircle.setAttribute('cy', 0);
+        cursorCircle.setAttribute('r', 5);
+        cursorCircle.setAttribute('class', 'cursor-circle');
+        
+        // Create cursor crosshair
+        const crosshairH = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        crosshairH.setAttribute('x1', -7);
+        crosshairH.setAttribute('y1', 0);
+        crosshairH.setAttribute('x2', 7);
+        crosshairH.setAttribute('y2', 0);
+        crosshairH.setAttribute('class', 'cursor-line');
+        
+        const crosshairV = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        crosshairV.setAttribute('x1', 0);
+        crosshairV.setAttribute('y1', -7);
+        crosshairV.setAttribute('x2', 0);
+        crosshairV.setAttribute('y2', 7);
+        crosshairV.setAttribute('class', 'cursor-line');
+        
+        // Add cursor elements to group
+        this.customCursor.appendChild(cursorCircle);
+        this.customCursor.appendChild(crosshairH);
+        this.customCursor.appendChild(crosshairV);
+        
+        // Add cursor to SVG
+        this.svg.appendChild(this.customCursor);
+        
+        // Mouse move event listener for cursor
         this.svg.addEventListener('mousemove', this.updateCustomCursorPosition);
+        
+        // Add events for cursor visibility
+        this.gameContainer.addEventListener('mouseenter', () => {
+            this.customCursor.classList.add('active');
+        });
+        
+        this.gameContainer.addEventListener('mouseleave', () => {
+            this.customCursor.classList.remove('active');
+        });
     }
 
     updateCustomCursorPosition(event) {
@@ -140,18 +192,21 @@ export class Game {
         const mouseX = event.clientX - svgRect.left;
         const mouseY = event.clientY - svgRect.top;
         
-        this.ui.updateCursorPosition(mouseX, mouseY);
+        // Update cursor position
+        this.customCursor.setAttribute('transform', `translate(${mouseX}, ${mouseY})`);
         
         // Update tile highlight info in dev panel
-        if (this.ui.isCursorVisible()) {
-            const tileUnderCursor = this.screenToTile(mouseX, mouseY);
+        if (this.customCursor.classList.contains('active')) {
+            const tilesGroup = this.svg.getElementById('tiles-group');
+            const worldTransform = tilesGroup ? tilesGroup.transform.baseVal.consolidate().matrix : { e: 0, f: 0 };
+            const tileUnderCursor = this.screenToTile(mouseX, mouseY, worldTransform);
             
             // Clamp to grid bounds
             const cursorTileX = Math.max(0, Math.min(this.GRID_SIZE_X - 1, tileUnderCursor.x));
             const cursorTileY = Math.max(0, Math.min(this.GRID_SIZE_Y - 1, tileUnderCursor.y));
             
             const tileKey = `${cursorTileX},${cursorTileY}`;
-            const tileType = this.worldTiles[tileKey] || 'unknown';
+            const tileType = this.worldManager.getTileType(cursorTileX, cursorTileY) || 'unknown';
             
             // Update dev info with cursor position
             this.updateDevInfo(cursorTileX, cursorTileY, tileType);
@@ -267,7 +322,56 @@ export class Game {
         this.devInfo.textContent = devText;
     }
 
+    createClickMarker(screenX, screenY) {
+        const markerSize = 10; // Size of the X marker lines
+        const marker = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        marker.setAttribute('class', 'click-marker');
+        marker.setAttribute('transform', `translate(${screenX}, ${screenY})`); // Position at click point
+
+        // Create the two lines for the X
+        const line1 = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        line1.setAttribute('x1', -markerSize / 2);
+        line1.setAttribute('y1', -markerSize / 2);
+        line1.setAttribute('x2', markerSize / 2);
+        line1.setAttribute('y2', markerSize / 2);
+
+        const line2 = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        line2.setAttribute('x1', -markerSize / 2);
+        line2.setAttribute('y1', markerSize / 2);
+        line2.setAttribute('x2', markerSize / 2);
+        line2.setAttribute('y2', -markerSize / 2);
+
+        marker.appendChild(line1);
+        marker.appendChild(line2);
+
+        // Append to the dedicated marker group
+        if (this.clickMarkerGroup) {
+            this.clickMarkerGroup.appendChild(marker);
+        } else {
+            this.svg.appendChild(marker); // Fallback if group isn't ready
+        }
+
+
+        // Remove the marker after the animation finishes (600ms)
+        marker.addEventListener('animationend', () => {
+            marker.remove();
+        });
+        // Fallback removal in case animationend doesn't fire reliably
+        setTimeout(() => {
+             if (marker.parentNode) {
+                 marker.remove();
+             }
+        }, 600);
+    }
+
     initializeGame() {
+        const resizeGame = () => {
+            this.svg.setAttribute('width', window.innerWidth);
+            this.svg.setAttribute('height', window.innerHeight);
+        };
+        window.addEventListener('resize', resizeGame);
+        resizeGame();
+
         try {
             this.room.initialize();
             console.log('Websim initialized:', this.room.clientId);
@@ -288,7 +392,7 @@ export class Game {
                  const startY = Math.floor(this.GRID_SIZE_Y / 2);
                  // Ensure starting tile isn't water
                  let sx = startX, sy = startY;
-                 while (this.worldTiles[`${sx},${sy}`] === 'water') {
+                 while (this.worldManager.getTileType(sx, sy) === 'water') {
                      sx = Math.floor(Math.random() * this.GRID_SIZE_X);
                      sy = Math.floor(Math.random() * this.GRID_SIZE_Y);
                  }
@@ -305,13 +409,6 @@ export class Game {
 
             this.updateDevInfo();
 
-            this.gameContainer.addEventListener('mouseenter', () => {
-                this.ui.setCursorVisibility(true);
-            });
-            
-            this.gameContainer.addEventListener('mouseleave', () => {
-                this.ui.setCursorVisibility(false);
-            });
 
             // Subscribe to presence updates
             this.room.subscribePresence((updatedPresence) => {
