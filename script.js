@@ -16,6 +16,8 @@ let clickMarkerGroup; // Group to hold click markers
 let customCursor; // Element for custom cursor
 
 const room = new WebsimSocket();
+const pathfinder = new TilePathfinder(worldTiles, GRID_SIZE_X, GRID_SIZE_Y);
+const movementManager = new MovementManager(room);
 
 // --- Game State ---
 let players = {}; // Local cache of player elements/data
@@ -389,9 +391,6 @@ async function initializeGame() {
         console.log('Peers:', room.peers);
         console.log('Initial Presence:', room.presence);
         console.log('Initial Room State:', room.roomState);
-
-        const pathfinder = new TilePathfinder(worldTiles, GRID_SIZE_X, GRID_SIZE_Y);
-        const movementManager = new MovementManager(room);
 
         if (players[room.clientId]) {
             movementManager.setAnimator(players[room.clientId].animator);
