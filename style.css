@@ -1,0 +1,60 @@
+body {
+    margin: 0;
+    overflow: hidden;
+    background-color: #333;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+}
+
+#game-container {
+    position: relative;
+    border: 1px solid #000;
+    background-color: #222; /* Dark background for contrast */
+    overflow: hidden; /* Ensure SVG clipping */
+}
+
+#game-svg {
+    display: block;
+    /* Add perspective for potential future 3D transforms if needed */
+    /* perspective: 1000px; */
+}
+
+.tile {
+    stroke: #444; /* Grid lines */
+    stroke-width: 0.5;
+}
+
+.tile-grass { fill: #5a8a5a; }
+.tile-water { fill: #4a7ca7; }
+.tile-stone { fill: #888888; }
+
+.player {
+    transition: transform 0.5s linear; /* Smooth movement between tiles */
+    /* transform-origin: bottom center; */
+}
+
+.player-body {
+    fill: #d2a679; /* Skin tone */
+    stroke: #333;
+    stroke-width: 1;
+}
+
+.player-head {
+    fill: #e0e0e0; /* Simple helmet/hair */
+    stroke: #333;
+    stroke-width: 1;
+}
+
+.player-name {
+    font-family: sans-serif;
+    font-size: 8px;
+    fill: white;
+    text-anchor: middle;
+    paint-order: stroke;
+    stroke: black;
+    stroke-width: 2px;
+    font-weight: bold;
+}
+
