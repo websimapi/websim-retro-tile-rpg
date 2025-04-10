@@ -55,7 +55,8 @@ export class TilePathfinder {
     }
     
     heuristic(a, b) {
-        return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+        // Chebyshev distance - allows for diagonal movement cost
+        return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
     }
     
     getLowestFScore(points, fScore) {
@@ -67,8 +68,12 @@ export class TilePathfinder {
     getNeighbors(point) {
         const neighbors = [];
         const directions = [
+            // Original orthogonal directions
             {x: 0, y: 1}, {x: 1, y: 0},
-            {x: 0, y: -1}, {x: -1, y: 0}
+            {x: 0, y: -1}, {x: -1, y: 0},
+            // New diagonal directions
+            {x: 1, y: 1}, {x: -1, y: -1},
+            {x: 1, y: -1}, {x: -1, y: 1}
         ];
         
         for (const dir of directions) {
@@ -77,6 +82,18 @@ export class TilePathfinder {
             
             if (newX >= 0 && newX < this.gridSizeX &&
                 newY >= 0 && newY < this.gridSizeY) {
+                
+                // For diagonal movement, check both adjacent tiles to ensure we can't cut corners
+                if (Math.abs(dir.x) === 1 && Math.abs(dir.y) === 1) {
+                    const horizNeighborKey = `${point.x + dir.x},${point.y}`;
+                    const vertNeighborKey = `${point.x},${point.y + dir.y}`;
+                    
+                    // Only allow diagonal if both adjacent tiles are walkable
+                    if (this.worldTiles[horizNeighborKey] === 'water' || 
+                        this.worldTiles[vertNeighborKey] === 'water') {
+                        continue;
+                    }
+                }
                 
                 const tileKey = `${newX},${newY}`;
                 if (this.worldTiles[tileKey] !== 'water') {
