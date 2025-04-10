@@ -59,11 +59,8 @@ export class Game {
         );
 
         if (path) {
-            // Show click marker
-            const targetScreenPos = this.tileToScreen(targetX, targetY);
-            const markerScreenX = worldTransform.e + targetScreenPos.x;
-            const markerScreenY = worldTransform.f + targetScreenPos.y;
-            this.createClickMarker(markerScreenX, markerScreenY);
+            // Show click marker directly at the click position
+            this.createClickMarker(clickX, clickY);
 
             // Start movement along path
             this.movementManager.startMoving(path);
