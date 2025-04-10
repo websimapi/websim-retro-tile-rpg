@@ -263,14 +263,13 @@ function handleMapClick(event) {
     const clickX = event.clientX - svgRect.left;
     const clickY = event.clientY - svgRect.top;
 
-    // Get world transform offset to adjust click coords
+    // Get world transform offset to adjust click coords for tile calculation
     const tilesGroup = svg.getElementById('tiles-group');
     const worldTransform = tilesGroup ? tilesGroup.transform.baseVal.consolidate().matrix : { e: 0, f: 0 };
 
-    // Adjust click coordinates based on the world transform
+    // Adjust click coordinates based on the world transform for tile identification
     const worldClickX = clickX - worldTransform.e;
-    const worldClickY = clickY - worldTransform.f - TILE_HEIGHT; // Adjust for player base offset
-
+    const worldClickY = clickY - worldTransform.f; // Remove TILE_HEIGHT adjustment here for tile calculation
 
     const targetTile = screenToTile(worldClickX, worldClickY);
 
@@ -278,7 +277,7 @@ function handleMapClick(event) {
     const targetX = Math.max(0, Math.min(GRID_SIZE_X - 1, targetTile.x));
     const targetY = Math.max(0, Math.min(GRID_SIZE_Y - 1, targetTile.y));
 
-    console.log(`Clicked screen: (${clickX}, ${clickY}), World click: (${worldClickX}, ${worldClickY}), Target Tile: (${targetX}, ${targetY})`);
+    console.log(`Clicked screen: (${clickX}, ${clickY}), Target Tile: (${targetX}, ${targetY})`);
 
 
     // Basic validation: don't move into water for now
@@ -289,13 +288,8 @@ function handleMapClick(event) {
     }
 
     // --- Add Click Marker ---
-    // Calculate the screen center of the target tile for the marker
-    const targetScreenPos = tileToScreen(targetX, targetY);
-    // Adjust position using the world transform and tile height offset for centering
-    const markerScreenX = worldTransform.e + targetScreenPos.x;
-    const markerScreenY = worldTransform.f + targetScreenPos.y + TILE_HEIGHT; // Center on the tile visually
-
-    createClickMarker(markerScreenX, markerScreenY);
+    // Use the raw click coordinates relative to the SVG element for the marker position
+    createClickMarker(clickX, clickY);
     // --- End Add Click Marker ---
 
 
