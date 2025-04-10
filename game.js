@@ -1,6 +1,8 @@
 import { TilePathfinder, MovementManager } from './pathfinding.js';
 import { CharacterAnimator } from './animations.js';
-import { CameraManager } from './camera.js';
+import { Camera } from './camera.js';
+import { CameraControls } from './cameraControls.js';
+import { World } from './world.js';
 
 export class Game {
     constructor(svg, gameContainer, devInfo) {
@@ -13,25 +15,10 @@ export class Game {
         this.TILE_HEIGHT = 32;
         this.GRID_SIZE_X = 20;
         this.GRID_SIZE_Y = 20;
-        this.clickMarkerGroup = null;
         this.customCursor = null;
-        this.worldTiles = {};
-        for (let x = 0; x < this.GRID_SIZE_X; x++) {
-            for (let y = 0; y < this.GRID_SIZE_Y; y++) {
-                const key = `${x},${y}`;
-                const noise = Math.random();
-                if (noise < 0.1) {
-                    this.worldTiles[key] = 'water';
-                } else if (noise < 0.2) {
-                    this.worldTiles[key] = 'stone';
-                } else {
-                    this.worldTiles[key] = 'grass';
-                }
-            }
-        }
-        this.pathfinder = new TilePathfinder(this.worldTiles, this.GRID_SIZE_X, this.GRID_SIZE_Y);
-        this.movementManager = new MovementManager(this.room);
-        this.cameraManager = new CameraManager(this.svg, this.gameContainer);
+
+        // Create world manager
+        this.world = new World(svg, this.TILE_WIDTH, this.TILE_HEIGHT, this.GRID_SIZE_X, this.GRID_SIZE_Y);
 
         // Bind methods
         this.handleMapClick = this.handleMapClick.bind(this);
@@ -43,147 +30,69 @@ export class Game {
         const clickX = event.clientX - svgRect.left;
         const clickY = event.clientY - svgRect.top;
 
-        const tilesGroup = this.svg.getElementById('tiles-group');
-        const worldTransform = tilesGroup ? tilesGroup.transform.baseVal.consolidate().matrix : { e: 0, f: 0 };
-
-        const targetTile = this.screenToTile(clickX, clickY, worldTransform);
+        // Convert screen to tile coordinates using camera
+        const targetTile = this.camera.screenToTile(clickX, clickY);
         const targetX = Math.max(0, Math.min(this.GRID_SIZE_X - 1, targetTile.x));
         const targetY = Math.max(0, Math.min(this.GRID_SIZE_Y - 1, targetTile.y));
 
         const currentPos = this.room.presence[this.room.clientId] || { x: 0, y: 0 };
-        
+
         // Find path to target
         const path = this.pathfinder.findPath(
-            currentPos.x, 
+            currentPos.x,
             currentPos.y,
             targetX,
             targetY
         );
 
-        if (path) {
-            // Show click marker
-            const targetScreenPos = this.tileToScreen(targetX, targetY);
-            const markerScreenX = worldTransform.e + targetScreenPos.x;
-            const markerScreenY = worldTransform.f + targetScreenPos.y + this.TILE_HEIGHT;
-            this.createClickMarker(markerScreenX, markerScreenY);
+        if (path && path.length > 0) {
+            // Get target position in screen space for click marker
+            const targetScreenPos = this.camera.tileToScreen(targetX, targetY);
+
+            // Create click marker at target position (adjust Y to place at base of tile)
+            this.world.createClickMarker(targetScreenPos.x, targetScreenPos.y + this.TILE_HEIGHT);
 
             // Start movement along path
             this.movementManager.startMoving(path);
         }
     }
 
-    tileToScreen(x, y) {
-        const screenX = (x - y) * (this.TILE_WIDTH / 2);
-        const screenY = (x + y) * (this.TILE_HEIGHT / 2);
-        return { x: screenX, y: screenY };
-    }
-
-    screenToTile(screenX, screenY, worldTransform) {
-        // Adjust for world transform
-        const adjustedX = screenX - worldTransform.e;
-        const adjustedY = screenY - worldTransform.f;
-        
-        // Inverse isometric projection
-        const tileX = Math.floor((adjustedX / (this.TILE_WIDTH / 2) + adjustedY / (this.TILE_HEIGHT / 2)) / 2);
-        const tileY = Math.floor((adjustedY / (this.TILE_HEIGHT / 2) - adjustedX / (this.TILE_WIDTH / 2)) / 2);
-        
-        return { x: tileX, y: tileY };
-    }
-
-    drawWorld() {
-        const tilesGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
-        tilesGroup.id = 'tiles-group';
-
-        tilesGroup.setAttribute('transform', 'translate(0, 0)'); // Will be managed by camera
-
-        for (let x = 0; x < this.GRID_SIZE_X; x++) {
-            for (let y = 0; y < this.GRID_SIZE_Y; y++) {
-                const tileKey = `${x},${y}`;
-                const tileType = this.worldTiles[tileKey] || 'grass';
-                const pos = this.tileToScreen(x, y);
-
-                const tile = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
-                const points = [
-                    { x: pos.x, y: pos.y + this.TILE_HEIGHT / 2 },                     // Top point
-                    { x: pos.x + this.TILE_WIDTH / 2, y: pos.y + this.TILE_HEIGHT },       // Right point
-                    { x: pos.x, y: pos.y + this.TILE_HEIGHT * 1.5 },                   // Bottom point
-                    { x: pos.x - this.TILE_WIDTH / 2, y: pos.y + this.TILE_HEIGHT }        // Left point
-                ].map(p => `${p.x},${p.y}`).join(' ');
-
-                tile.setAttribute('points', points);
-                tile.setAttribute('class', `tile tile-${tileType}`);
-                tile.dataset.x = x;
-                tile.dataset.y = y;
-                tilesGroup.appendChild(tile);
-            }
-        }
-        // Ensure tiles are added before players
-        const playersGroup = this.svg.getElementById('players-group');
-        if (playersGroup) {
-            this.svg.insertBefore(tilesGroup, playersGroup);
-        } else {
-            this.svg.appendChild(tilesGroup);
-        }
-
-        // Add click listener to the SVG for movement
-        this.svg.addEventListener('click', this.handleMapClick);
-
-        // Create a group for click markers, drawn above tiles but below players
-        this.clickMarkerGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
-        this.clickMarkerGroup.id = 'click-markers-group';
-        if (playersGroup) {
-             this.svg.insertBefore(this.clickMarkerGroup, playersGroup);
-        } else {
-             this.svg.appendChild(this.clickMarkerGroup);
-        }
-        
-        // Create and initialize custom cursor
-        this.initializeCustomCursor();
-    }
-
     initializeCustomCursor() {
-        // Create cursor group
         this.customCursor = document.createElementNS("http://www.w3.org/2000/svg", "g");
         this.customCursor.id = 'custom-cursor';
-        
-        // Create cursor circle
+
         const cursorCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
         cursorCircle.setAttribute('cx', 0);
         cursorCircle.setAttribute('cy', 0);
         cursorCircle.setAttribute('r', 5);
         cursorCircle.setAttribute('class', 'cursor-circle');
-        
-        // Create cursor crosshair
+
         const crosshairH = document.createElementNS("http://www.w3.org/2000/svg", "line");
         crosshairH.setAttribute('x1', -7);
         crosshairH.setAttribute('y1', 0);
         crosshairH.setAttribute('x2', 7);
         crosshairH.setAttribute('y2', 0);
         crosshairH.setAttribute('class', 'cursor-line');
-        
+
         const crosshairV = document.createElementNS("http://www.w3.org/2000/svg", "line");
         crosshairV.setAttribute('x1', 0);
         crosshairV.setAttribute('y1', -7);
         crosshairV.setAttribute('x2', 0);
         crosshairV.setAttribute('y2', 7);
         crosshairV.setAttribute('class', 'cursor-line');
-        
-        // Add cursor elements to group
+
         this.customCursor.appendChild(cursorCircle);
         this.customCursor.appendChild(crosshairH);
         this.customCursor.appendChild(crosshairV);
-        
-        // Add cursor to SVG
+
         this.svg.appendChild(this.customCursor);
-        
-        // Mouse move event listener for cursor
+
         this.svg.addEventListener('mousemove', this.updateCustomCursorPosition);
-        
-        // Add events for cursor visibility
+
         this.gameContainer.addEventListener('mouseenter', () => {
             this.customCursor.classList.add('active');
         });
-        
+
         this.gameContainer.addEventListener('mouseleave', () => {
             this.customCursor.classList.remove('active');
         });
@@ -193,31 +102,24 @@ export class Game {
         const svgRect = this.svg.getBoundingClientRect();
         const mouseX = event.clientX - svgRect.left;
         const mouseY = event.clientY - svgRect.top;
-        
-        // Update cursor position
-        this.customCursor.setAttribute('transform', `translate(${mouseX}, ${mouseY})`);
-        
-        // Update tile highlight info in dev panel
-        if (this.customCursor.classList.contains('active')) {
-            const tilesGroup = this.svg.getElementById('tiles-group');
-            const worldTransform = tilesGroup ? tilesGroup.transform.baseVal.consolidate().matrix : { e: 0, f: 0 };
-            const tileUnderCursor = this.screenToTile(mouseX, mouseY, worldTransform);
-            
-            // Clamp to grid bounds
+
+        this.customCursor.setAttribute('transform', `translate(${mouseX}, ${mouseY})');
+
+        if (this.customCursor.classList.contains('active') && this.camera) {
+            const tileUnderCursor = this.camera.screenToTile(mouseX, mouseY);
+
             const cursorTileX = Math.max(0, Math.min(this.GRID_SIZE_X - 1, tileUnderCursor.x));
             const cursorTileY = Math.max(0, Math.min(this.GRID_SIZE_Y - 1, tileUnderCursor.y));
-            
-            const tileKey = `${cursorTileX},${cursorTileY}`;
-            const tileType = this.worldTiles[tileKey] || 'unknown';
-            
-            // Update dev info with cursor position
+
+            const tileType = this.world.getTileType(cursorTileX, cursorTileY);
+
             this.updateDevInfo(cursorTileX, cursorTileY, tileType);
         }
     }
 
     drawPlayer(clientId, presenceData, peerData) {
-        const { x = 0, y = 0 } = presenceData || {}; // Default to 0,0 if no position
-        const { username = 'Player', avatarUrl } = peerData || {}; // Use peer data
+        const { x = 0, y = 0 } = presenceData || {};
+        const { username = 'Player' } = peerData || {};
 
         let playerGroup = this.svg.getElementById(`player-${clientId}`);
         let playerBody, playerHead, playerNameTag;
@@ -227,11 +129,10 @@ export class Game {
             playerGroup.id = `player-${clientId}`;
             playerGroup.classList.add('player');
 
-            // Simple player representation
             playerBody = document.createElementNS("http://www.w3.org/2000/svg", "rect");
             playerBody.setAttribute('class', 'player-body');
             playerBody.setAttribute('x', -8);
-            playerBody.setAttribute('y', -25); // Position relative to the center bottom
+            playerBody.setAttribute('y', -25);
             playerBody.setAttribute('width', 16);
             playerBody.setAttribute('height', 20);
             playerGroup.appendChild(playerBody);
@@ -239,71 +140,52 @@ export class Game {
             playerHead = document.createElementNS("http://www.w3.org/2000/svg", "circle");
             playerHead.setAttribute('class', 'player-head');
             playerHead.setAttribute('cx', 0);
-            playerHead.setAttribute('cy', -32); // Above the body
+            playerHead.setAttribute('cy', -32);
             playerHead.setAttribute('r', 7);
             playerGroup.appendChild(playerHead);
 
-            // Add username display
             playerNameTag = document.createElementNS("http://www.w3.org/2000/svg", "text");
             playerNameTag.setAttribute('class', 'player-name');
             playerNameTag.setAttribute('x', 0);
-            playerNameTag.setAttribute('y', -45); // Above the head
+            playerNameTag.setAttribute('y', -45);
             playerNameTag.textContent = username;
             playerGroup.appendChild(playerNameTag);
 
-
-            // Ensure players group exists
-            let playersGroup = this.svg.getElementById('players-group');
-            if (!playersGroup) {
-                playersGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
-                playersGroup.id = 'players-group';
-                this.svg.appendChild(playersGroup);
-            }
-            playersGroup.appendChild(playerGroup);
-
+            this.world.playersGroup.appendChild(playerGroup);
             this.players[clientId] = { element: playerGroup, body: playerBody, head: playerHead, nameTag: playerNameTag };
-        } else {
-             if (this.players[clientId] && this.players[clientId].nameTag.textContent !== username) {
-                 this.players[clientId].nameTag.textContent = username;
-             }
+        } else if (this.players[clientId] && this.players[clientId].nameTag.textContent !== username) {
+            this.players[clientId].nameTag.textContent = username;
         }
 
         // Calculate screen position based on tile coordinates
-        const screenPos = this.tileToScreen(x, y);
-
-        // Adjust for player height (center bottom of sprite on tile center)
+        const screenPos = this.camera.tileToScreen(x, y);
         const drawX = screenPos.x;
-        const drawY = screenPos.y + this.TILE_HEIGHT; // Base of the player at the tile's center y
+        const drawY = screenPos.y + this.TILE_HEIGHT;
 
-         // Get world transform offset
-        const tilesGroup = this.svg.getElementById('tiles-group');
-        const worldTransform = tilesGroup ? tilesGroup.transform.baseVal.consolidate().matrix : { e: 0, f: 0 };
-
-        // Apply transform to move the player group
-        playerGroup.setAttribute('transform', `translate(${worldTransform.e + drawX}, ${worldTransform.f + drawY})`);
+        playerGroup.setAttribute('transform', `translate(${drawX}, ${drawY})`);
 
         if (!this.players[clientId].animator) {
             this.players[clientId].animator = new CharacterAnimator(playerGroup);
         }
 
-        if (clientId === this.room.clientId) {
-            this.cameraManager.updateCameraPosition(x, y, this.TILE_WIDTH, this.TILE_HEIGHT);
-        }
+        // Update Z-ordering
+        this.updatePlayerZOrder();
 
-        // Simple Z-ordering based on Y-coordinate (further back tiles drawn first)
-        // This works because SVG renders elements later in the DOM on top.
-        // We re-append the element to ensure it's ordered correctly relative to others on the same Y.
-        // A more robust solution would sort all players in the group.
-        const playersGroup = this.svg.getElementById('players-group');
-        if (playersGroup) { // Ensure group exists
-            // Crude sorting: players further down (higher Y tile) are drawn later (on top)
-            const sortedPlayers = Array.from(playersGroup.children).sort((a, b) => {
-                const presenceA = this.room.presence[a.id.replace('player-', '')] || { y: 0 };
-                const presenceB = this.room.presence[b.id.replace('player-', '')] || { y: 0 };
-                return (presenceA.x + presenceA.y) - (presenceB.x + presenceB.y); // Sort by combined coords for iso depth
-            });
-            sortedPlayers.forEach(p => playersGroup.appendChild(p)); // Re-append in sorted order
+        // If this is the local player, update camera focus
+        if (clientId === this.room.clientId) {
+            this.camera.setTarget(x, y);
         }
+    }
+
+    updatePlayerZOrder() {
+        // Sort players by their coordinates for proper depth rendering
+        Array.from(this.world.playersGroup.children)
+            .sort((a, b) => {
+                const presenceA = this.room.presence[a.id.replace('player-', '')] || { y: 0, x: 0 };
+                const presenceB = this.room.presence[b.id.replace('player-', '')] || { y: 0, x: 0 };
+                return (presenceA.x + presenceA.y) - (presenceB.x + presenceB.y);
+            })
+            .forEach(p => this.world.playersGroup.appendChild(p));
     }
 
     removePlayer(clientId) {
@@ -319,155 +201,119 @@ export class Game {
         const pos = `Pos: (${player.x ?? 'N/A'}, ${player.y ?? 'N/A'})`;
         const peersCount = Object.keys(this.room.peers).length;
         let devText = `User: ${this.room.peers[this.room.clientId]?.username || 'Connecting...'} | ${pos} | Peers: ${peersCount}`;
-        
-        // Add cursor position if provided
+
         if (cursorTileX !== undefined && cursorTileY !== undefined) {
             devText += ` | Cursor: (${cursorTileX}, ${cursorTileY}) [${tileType}]`;
         }
-        
-        this.devInfo.textContent = devText;
-    }
 
-    createClickMarker(screenX, screenY) {
-        const markerSize = 10; // Size of the X marker lines
-        const marker = document.createElementNS("http://www.w3.org/2000/svg", "g");
-        marker.setAttribute('class', 'click-marker');
-        marker.setAttribute('transform', `translate(${screenX}, ${screenY})`); // Position at click point
-
-        // Create the two lines for the X
-        const line1 = document.createElementNS("http://www.w3.org/2000/svg", "line");
-        line1.setAttribute('x1', -markerSize / 2);
-        line1.setAttribute('y1', -markerSize / 2);
-        line1.setAttribute('x2', markerSize / 2);
-        line1.setAttribute('y2', markerSize / 2);
-
-        const line2 = document.createElementNS("http://www.w3.org/2000/svg", "line");
-        line2.setAttribute('x1', -markerSize / 2);
-        line2.setAttribute('y1', markerSize / 2);
-        line2.setAttribute('x2', markerSize / 2);
-        line2.setAttribute('y2', -markerSize / 2);
-
-        marker.appendChild(line1);
-        marker.appendChild(line2);
-
-        // Append to the dedicated marker group
-        if (this.clickMarkerGroup) {
-            this.clickMarkerGroup.appendChild(marker);
-        } else {
-            this.svg.appendChild(marker); // Fallback if group isn't ready
+        // Add camera angle information
+        if (this.camera) {
+            devText += ` | Camera: ${this.camera.angle}°`;
         }
 
-
-        // Remove the marker after the animation finishes (600ms)
-        marker.addEventListener('animationend', () => {
-            marker.remove();
-        });
-        // Fallback removal in case animationend doesn't fire reliably
-        setTimeout(() => {
-             if (marker.parentNode) {
-                 marker.remove();
-             }
-        }, 600);
+        this.devInfo.textContent = devText;
     }
 
     initializeGame() {
         try {
             this.room.initialize();
             console.log('Websim initialized:', this.room.clientId);
-            console.log('Peers:', this.room.peers);
-            console.log('Initial Presence:', this.room.presence);
-            console.log('Initial Room State:', this.room.roomState);
 
+            // Initialize the world
+            const worldGroup = this.world.initialize();
+
+            // Create pathfinder with world tiles
+            this.pathfinder = new TilePathfinder(this.world.worldTiles, this.GRID_SIZE_X, this.GRID_SIZE_Y);
+
+            // Create movement manager
+            this.movementManager = new MovementManager(this.room);
+
+            // Initialize camera system
+            this.camera = new Camera(this.svg, this.TILE_WIDTH, this.TILE_HEIGHT);
+            this.camera.initialize(worldGroup);
+
+            // Initialize camera controls
+            this.cameraControls = new CameraControls(this.camera, this);
+            this.cameraControls.initialize();
+
+            // Initialize custom cursor
+            this.initializeCustomCursor();
+
+            // Add click listener for movement
+            this.svg.addEventListener('click', this.handleMapClick);
+
+            // Set initial state if not present
+            if (!this.room.presence[this.room.clientId]?.hasOwnProperty('x')) {
+                let sx = Math.floor(this.GRID_SIZE_X / 2);
+                let sy = Math.floor(this.GRID_SIZE_Y / 2);
+
+                // Ensure starting tile isn't water
+                while (this.world.getTileType(sx, sy) === 'water') {
+                    sx = Math.floor(Math.random() * this.GRID_SIZE_X);
+                    sy = Math.floor(Math.random() * this.GRID_SIZE_Y);
+                }
+                this.room.updatePresence({ x: sx, y: sy });
+            }
+
+            // Setup movement animator
             if (this.players[this.room.clientId]) {
                 this.movementManager.setAnimator(this.players[this.room.clientId].animator);
             }
 
-            // Initial setup
-            this.drawWorld(); // Draw the base map
-
-            // Set initial state if not present (e.g., starting position)
-            if (!this.room.presence[this.room.clientId]?.hasOwnProperty('x')) {
-                 const startX = Math.floor(this.GRID_SIZE_X / 2);
-                 const startY = Math.floor(this.GRID_SIZE_Y / 2);
-                 // Ensure starting tile isn't water
-                 let sx = startX, sy = startY;
-                 while (this.worldTiles[`${sx},${sy}`] === 'water') {
-                     sx = Math.floor(Math.random() * this.GRID_SIZE_X);
-                     sy = Math.floor(Math.random() * this.GRID_SIZE_Y);
-                 }
-                 this.room.updatePresence({ x: sx, y: sy });
-                 // Center camera on initial position
-                 this.cameraManager.updateCameraPosition(sx, sy, this.TILE_WIDTH, this.TILE_HEIGHT);
-            }
-
-
             // Draw initial players
             for (const clientId in this.room.presence) {
-                if (this.room.peers[clientId]) { // Only draw if peer data is available
-                     this.drawPlayer(clientId, this.room.presence[clientId], this.room.peers[clientId]);
+                if (this.room.peers[clientId]) {
+                    this.drawPlayer(clientId, this.room.presence[clientId], this.room.peers[clientId]);
                 }
             }
 
             this.updateDevInfo();
 
-
             // Subscribe to presence updates
             this.room.subscribePresence((updatedPresence) => {
-                 // console.log('Presence updated:', updatedPresence);
-                // Update or remove players based on changes
                 const currentClientIds = new Set(Object.keys(this.players));
-                const incomingClientIds = new Set(Object.keys(this.room.presence)); // Use room.presence as source of truth
+                const incomingClientIds = new Set(Object.keys(this.room.presence));
 
-                // Add or update players
                 for (const clientId in this.room.presence) {
-                     if (this.room.peers[clientId]) { // Check if peer exists (they might disconnect)
+                    if (this.room.peers[clientId]) {
                         this.drawPlayer(clientId, this.room.presence[clientId], this.room.peers[clientId]);
-                        currentClientIds.delete(clientId); // Mark as handled
-                     } else {
-                         // Peer data not yet available or peer disconnected before presence update processed fully
-                         this.removePlayer(clientId); // Clean up if peer is gone
-                         currentClientIds.delete(clientId);
-                     }
+                        currentClientIds.delete(clientId);
+                    } else {
+                        this.removePlayer(clientId);
+                        currentClientIds.delete(clientId);
+                    }
                 }
 
-                // Remove players who are no longer present or lack peer data
                 currentClientIds.forEach(this.removePlayer.bind(this));
                 this.updateDevInfo();
             });
 
-            // Subscribe to room state updates (if needed later)
+            // The rest of the subscription handlers remain unchanged
             this.room.subscribeRoomState((updatedRoomState) => {
                 console.log('Room state updated:', updatedRoomState);
-                // Handle changes to world objects, etc.
             });
 
-            // Handle incoming messages/events (if needed later)
             this.room.onmessage = (event) => {
                 console.log("Received message:", event);
                 const data = event.data;
                 switch (data.type) {
                     case "connected":
                         console.log(`Client connected: ${data.clientId}, ${data.username}`);
-                        // Presence update will handle drawing the new player
                         this.updateDevInfo();
                         break;
                     case "disconnected":
                         console.log(`Client disconnected: ${data.clientId}, ${data.username}`);
-                        this.removePlayer(data.clientId); // Ensure removal on disconnect message
+                        this.removePlayer(data.clientId);
                         this.updateDevInfo();
                         break;
-                    // Handle custom game events here
                     default:
                         console.log("Received event:", data);
                 }
             };
 
-            // Handle presence update requests (if needed later, e.g., for combat)
             this.room.subscribePresenceUpdateRequests((updateRequest, fromClientId) => {
-                 console.log(`Received presence update request from ${fromClientId}:`, updateRequest);
-                 // Handle requests like 'damage', 'trade', etc.
+                console.log(`Received presence update request from ${fromClientId}:`, updateRequest);
             });
-
 
         } catch (error) {
             console.error("Failed to initialize Websim:", error);
