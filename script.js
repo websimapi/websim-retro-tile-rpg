@@ -1,3 +1,5 @@
+import { TilePathfinder, MovementManager } from './pathfinding.js';
+
 // --- Imports & Setup ---
 // WebsimSocket is globally available
 
@@ -32,6 +34,42 @@ for (let x = 0; x < GRID_SIZE_X; x++) {
         } else {
             worldTiles[key] = 'grass';
         }
+    }
+}
+
+// --- Event Handlers ---
+
+function handleMapClick(event) {
+    const svgRect = svg.getBoundingClientRect();
+    const clickX = event.clientX - svgRect.left;
+    const clickY = event.clientY - svgRect.top;
+
+    const tilesGroup = svg.getElementById('tiles-group');
+    const worldTransform = tilesGroup ? tilesGroup.transform.baseVal.consolidate().matrix : { e: 0, f: 0 };
+
+    const targetTile = screenToTile(clickX, clickY, worldTransform);
+    const targetX = Math.max(0, Math.min(GRID_SIZE_X - 1, targetTile.x));
+    const targetY = Math.max(0, Math.min(GRID_SIZE_Y - 1, targetTile.y));
+
+    const currentPos = room.presence[room.clientId] || { x: 0, y: 0 };
+    
+    // Find path to target
+    const path = pathfinder.findPath(
+        currentPos.x, 
+        currentPos.y,
+        targetX,
+        targetY
+    );
+
+    if (path) {
+        // Show click marker
+        const targetScreenPos = tileToScreen(targetX, targetY);
+        const markerScreenX = worldTransform.e + targetScreenPos.x;
+        const markerScreenY = worldTransform.f + targetScreenPos.y + TILE_HEIGHT;
+        createClickMarker(markerScreenX, markerScreenY);
+
+        // Start movement along path
+        movementManager.startMoving(path);
     }
 }
 
@@ -338,46 +376,6 @@ function createClickMarker(screenX, screenY) {
     }, 600);
 }
 
-// --- Event Handlers ---
-
-function handleMapClick(event) {
-    const svgRect = svg.getBoundingClientRect();
-    const clickX = event.clientX - svgRect.left;
-    const clickY = event.clientY - svgRect.top;
-
-    // Get world transform
-    const tilesGroup = svg.getElementById('tiles-group');
-    const worldTransform = tilesGroup ? tilesGroup.transform.baseVal.consolidate().matrix : { e: 0, f: 0 };
-
-    // Convert screen position to tile position with improved function
-    const targetTile = screenToTile(clickX, clickY, worldTransform);
-
-    // Clamp coordinates to grid bounds
-    const targetX = Math.max(0, Math.min(GRID_SIZE_X - 1, targetTile.x));
-    const targetY = Math.max(0, Math.min(GRID_SIZE_Y - 1, targetTile.y));
-
-    console.log(`Clicked screen: (${clickX}, ${clickY}), Target Tile: (${targetX}, ${targetY})`);
-
-    // Basic validation: don't move into water for now
-    const targetTileKey = `${targetX},${targetY}`;
-    if (worldTiles[targetTileKey] === 'water') {
-        console.log("Cannot move into water.");
-        return;
-    }
-
-    // Calculate the screen center of the target tile for the marker
-    const targetScreenPos = tileToScreen(targetX, targetY);
-    
-    // Adjust position using the world transform
-    const markerScreenX = worldTransform.e + targetScreenPos.x;
-    const markerScreenY = worldTransform.f + targetScreenPos.y + TILE_HEIGHT; // Center on the tile visually
-
-    createClickMarker(markerScreenX, markerScreenY);
-
-    // Update presence
-    room.updatePresence({ x: targetX, y: targetY });
-}
-
 // --- Websim Integration ---
 
 async function initializeGame() {
@@ -387,6 +385,9 @@ async function initializeGame() {
         console.log('Peers:', room.peers);
         console.log('Initial Presence:', room.presence);
         console.log('Initial Room State:', room.roomState);
+
+        const pathfinder = new TilePathfinder(worldTiles, GRID_SIZE_X, GRID_SIZE_Y);
+        const movementManager = new MovementManager(room);
 
         // Initial setup
         drawWorld(); // Draw the base map
