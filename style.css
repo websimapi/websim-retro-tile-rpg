@@ -58,3 +58,22 @@ body {
     font-weight: bold;
 }
 
+/* Click Marker Styles */
+.click-marker {
+    stroke: yellow;
+    stroke-width: 3;
+    fill: none;
+    pointer-events: none; /* Prevent marker from interfering with clicks */
+    animation: fadeOutScale 0.6s ease-out forwards; /* Animation name, duration, timing, and final state */
+}
+
+@keyframes fadeOutScale {
+    from {
+        opacity: 1;
+        transform: scale(1);
+    }
+    to {
+        opacity: 0;
+        transform: scale(1.5); /* Optional: scale up slightly as it fades */
+    }
+}

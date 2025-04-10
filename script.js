@@ -9,6 +9,7 @@ const GRID_SIZE_Y = 20; // Number of tiles vertically
 const svg = document.getElementById('game-svg');
 const gameContainer = document.getElementById('game-container');
 const devInfo = document.getElementById('dev-info');
+let clickMarkerGroup; // Group to hold click markers
 
 const room = new WebsimSocket();
 
@@ -102,6 +103,15 @@ function drawWorld() {
 
     // Add click listener to the tiles group for movement
     tilesGroup.addEventListener('click', handleMapClick);
+
+    // Create a group for click markers, drawn above tiles but below players
+    clickMarkerGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    clickMarkerGroup.id = 'click-markers-group';
+    if (playersGroup) {
+         svg.insertBefore(clickMarkerGroup, playersGroup);
+    } else {
+         svg.appendChild(clickMarkerGroup);
+    }
 }
 
 function drawPlayer(clientId, presenceData, peerData) {
@@ -203,6 +213,49 @@ function updateDevInfo() {
      devInfo.textContent = `User: ${room.peers[room.clientId]?.username || 'Connecting...'} | ${pos} | Peers: ${peersCount}`;
 }
 
+// --- Click Marker ---
+function createClickMarker(screenX, screenY) {
+    const markerSize = 10; // Size of the X marker lines
+    const marker = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    marker.setAttribute('class', 'click-marker');
+    marker.setAttribute('transform', `translate(${screenX}, ${screenY})`); // Position at click point
+
+    // Create the two lines for the X
+    const line1 = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    line1.setAttribute('x1', -markerSize / 2);
+    line1.setAttribute('y1', -markerSize / 2);
+    line1.setAttribute('x2', markerSize / 2);
+    line1.setAttribute('y2', markerSize / 2);
+
+    const line2 = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    line2.setAttribute('x1', -markerSize / 2);
+    line2.setAttribute('y1', markerSize / 2);
+    line2.setAttribute('x2', markerSize / 2);
+    line2.setAttribute('y2', -markerSize / 2);
+
+    marker.appendChild(line1);
+    marker.appendChild(line2);
+
+    // Append to the dedicated marker group
+    if (clickMarkerGroup) {
+        clickMarkerGroup.appendChild(marker);
+    } else {
+        svg.appendChild(marker); // Fallback if group isn't ready
+    }
+
+
+    // Remove the marker after the animation finishes (600ms)
+    marker.addEventListener('animationend', () => {
+        marker.remove();
+    });
+    // Fallback removal in case animationend doesn't fire reliably
+    setTimeout(() => {
+         if (marker.parentNode) {
+             marker.remove();
+         }
+    }, 600);
+}
+
 // --- Event Handlers ---
 
 function handleMapClick(event) {
@@ -235,11 +288,21 @@ function handleMapClick(event) {
         return;
     }
 
+    // --- Add Click Marker ---
+    // Calculate the screen center of the target tile for the marker
+    const targetScreenPos = tileToScreen(targetX, targetY);
+    // Adjust position using the world transform and tile height offset for centering
+    const markerScreenX = worldTransform.e + targetScreenPos.x;
+    const markerScreenY = worldTransform.f + targetScreenPos.y + TILE_HEIGHT; // Center on the tile visually
+
+    createClickMarker(markerScreenX, markerScreenY);
+    // --- End Add Click Marker ---
+
+
     // Update presence - Simple direct move for now
     // A more complex implementation would use targetX/Y and tick-based movement
     room.updatePresence({ x: targetX, y: targetY });
 }
-
 
 // --- Websim Integration ---
 
@@ -344,4 +407,3 @@ async function initializeGame() {
 
 // --- Start Game ---
 initializeGame();
-
