@@ -22,6 +22,11 @@ export class World {
         this.tilesGroup = this.drawTiles();
         this.worldGroup.appendChild(this.tilesGroup);
         
+        // Create a group for click markers
+        this.clickMarkerGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        this.clickMarkerGroup.id = 'click-markers-group';
+        this.worldGroup.appendChild(this.clickMarkerGroup);
+        
         // Create a group for players
         this.playersGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
         this.playersGroup.id = 'players-group';
@@ -29,12 +34,6 @@ export class World {
         
         // Add the world group to the SVG
         this.svg.appendChild(this.worldGroup);
-        
-        // Create a group for click markers - now OUTSIDE the world group
-        // so it's not affected by camera transforms
-        this.clickMarkerGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
-        this.clickMarkerGroup.id = 'click-markers-group';
-        this.svg.appendChild(this.clickMarkerGroup);
         
         return this.worldGroup;
     }

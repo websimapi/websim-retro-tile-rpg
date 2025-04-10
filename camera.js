@@ -34,15 +34,20 @@ export class Camera {
         const centerX = svgWidth / 2;
         const centerY = svgHeight / 2;
         
-        // Convert target tile position to screen position based on current angle
+        // Convert target tile position to screen position
         const screenPos = this.tileToScreen(this.target.x, this.target.y);
         
         // Calculate translation to center the target
         const translateX = centerX - screenPos.x;
         const translateY = centerY - screenPos.y;
         
-        // Apply the transformation
-        this.worldGroup.setAttribute('transform', `translate(${translateX}, ${translateY}) rotate(${this.angle}, ${screenPos.x}, ${screenPos.y})`);
+        // First translate to center, then rotate around center
+        // This ensures the rotation happens around the player position
+        this.worldGroup.setAttribute('transform', 
+            `translate(${centerX}, ${centerY}) ` +
+            `rotate(${this.angle}) ` +
+            `translate(${-screenPos.x}, ${-screenPos.y})`
+        );
     }
     
     tileToScreen(x, y) {
@@ -55,28 +60,20 @@ export class Camera {
     screenToTile(screenX, screenY) {
         if (!this.worldGroup) return { x: 0, y: 0 };
         
-        // Get the current transform
+        // Get the current transform matrix
         const transform = this.worldGroup.transform.baseVal.consolidate().matrix;
         
-        // Adjust for world transform and rotation
-        let adjustedX = screenX;
-        let adjustedY = screenY;
-        
-        // Reverse the transform to get the coordinates in the world space
+        // Create a point for transformation
         const point = this.svg.createSVGPoint();
         point.x = screenX;
         point.y = screenY;
         
-        // Get the inverse of the current transform
-        const inverseTransform = transform.inverse();
-        const transformedPoint = point.matrixTransform(inverseTransform);
-        
-        adjustedX = transformedPoint.x;
-        adjustedY = transformedPoint.y;
+        // Transform the point back to world space
+        const transformedPoint = point.matrixTransform(transform.inverse());
         
         // Convert to tile coordinates using inverse isometric formula
-        const tileX = Math.floor((adjustedX / (this.tileWidth / 2) + adjustedY / (this.tileHeight / 2)) / 2);
-        const tileY = Math.floor((adjustedY / (this.tileHeight / 2) - adjustedX / (this.tileWidth / 2)) / 2);
+        const tileX = Math.floor((transformedPoint.x / (this.tileWidth / 2) + transformedPoint.y / (this.tileHeight / 2)) / 2);
+        const tileY = Math.floor((transformedPoint.y / (this.tileHeight / 2) - transformedPoint.x / (this.tileWidth / 2)) / 2);
         
         return { x: tileX, y: tileY };
     }
