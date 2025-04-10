@@ -44,7 +44,7 @@ export class Game {
         const tilesGroup = this.svg.getElementById('tiles-group');
         const worldTransform = tilesGroup ? tilesGroup.transform.baseVal.consolidate().matrix : { e: 0, f: 0 };
 
-        const targetTile = this.screenToTile(clickX - worldTransform.e, clickY - worldTransform.f);
+        const targetTile = this.screenToTile(clickX, clickY);
         const targetX = Math.max(0, Math.min(this.GRID_SIZE_X - 1, targetTile.x));
         const targetY = Math.max(0, Math.min(this.GRID_SIZE_Y - 1, targetTile.y));
 
@@ -73,7 +73,10 @@ export class Game {
         return { x: screenX, y: screenY };
     }
 
-    screenToTile(screenX, screenY, worldTransform) {
+    screenToTile(screenX, screenY) {
+        const tilesGroup = this.svg.getElementById('tiles-group');
+        const worldTransform = tilesGroup ? tilesGroup.transform.baseVal.consolidate().matrix : { e: 0, f: 0 };
+        
         // Adjust for world transform
         const adjustedX = screenX - worldTransform.e;
         const adjustedY = screenY - worldTransform.f;
@@ -141,9 +144,7 @@ export class Game {
         
         // Update tile highlight info in dev panel
         if (this.ui.isCursorVisible()) {
-            const tilesGroup = this.svg.getElementById('tiles-group');
-            const worldTransform = tilesGroup ? tilesGroup.transform.baseVal.consolidate().matrix : { e: 0, f: 0 };
-            const tileUnderCursor = this.screenToTile(mouseX - worldTransform.e, mouseY - worldTransform.f);
+            const tileUnderCursor = this.screenToTile(mouseX, mouseY);
             
             // Clamp to grid bounds
             const cursorTileX = Math.max(0, Math.min(this.GRID_SIZE_X - 1, tileUnderCursor.x));
