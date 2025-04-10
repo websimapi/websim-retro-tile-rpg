@@ -1,6 +1,6 @@
 import { TilePathfinder, MovementManager } from './pathfinding.js';
 import { CharacterAnimator } from './animations.js';
-import { WorldChunkManager } from './world.js';
+import { CameraManager } from './camera.js';
 
 export class Game {
     constructor(svg, gameContainer, devInfo) {
@@ -11,12 +11,27 @@ export class Game {
         this.players = {};
         this.TILE_WIDTH = 64;
         this.TILE_HEIGHT = 32;
-        this.GRID_SIZE_X = 64; // Increased grid size
-        this.GRID_SIZE_Y = 64;
-        this.worldManager = new WorldChunkManager(this.TILE_WIDTH, this.TILE_HEIGHT);
-        this.viewDistance = 2; // Number of chunks to load around player
+        this.GRID_SIZE_X = 20;
+        this.GRID_SIZE_Y = 20;
         this.clickMarkerGroup = null;
         this.customCursor = null;
+        this.worldTiles = {};
+        for (let x = 0; x < this.GRID_SIZE_X; x++) {
+            for (let y = 0; y < this.GRID_SIZE_Y; y++) {
+                const key = `${x},${y}`;
+                const noise = Math.random();
+                if (noise < 0.1) {
+                    this.worldTiles[key] = 'water';
+                } else if (noise < 0.2) {
+                    this.worldTiles[key] = 'stone';
+                } else {
+                    this.worldTiles[key] = 'grass';
+                }
+            }
+        }
+        this.pathfinder = new TilePathfinder(this.worldTiles, this.GRID_SIZE_X, this.GRID_SIZE_Y);
+        this.movementManager = new MovementManager(this.room);
+        this.cameraManager = new CameraManager(this.svg, this.gameContainer);
 
         // Bind methods
         this.handleMapClick = this.handleMapClick.bind(this);
@@ -79,31 +94,20 @@ export class Game {
         const tilesGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
         tilesGroup.id = 'tiles-group';
 
-        // Center view initially
-        const viewCenterX = this.svg.clientWidth / 2;
-        const viewCenterY = this.svg.clientHeight / 2 - this.TILE_HEIGHT * 5;
+        tilesGroup.setAttribute('transform', 'translate(0, 0)'); // Will be managed by camera
 
-        // Initially load chunks around center
-        const centerTileX = Math.floor(this.GRID_SIZE_X / 2);
-        const centerTileY = Math.floor(this.GRID_SIZE_Y / 2);
-        this.worldManager.updateVisibleChunks(centerTileX, centerTileY, this.viewDistance);
-
-        // Draw all loaded chunks
-        for (const chunkKey of this.worldManager.loadedChunks) {
-            const [chunkX, chunkY] = chunkKey.split(',').map(Number);
-            const chunk = this.worldManager.chunks.get(chunkKey);
-            
-            for (const tileKey in chunk) {
-                const [x, y] = tileKey.split(',').map(Number);
-                const tileType = chunk[tileKey];
+        for (let x = 0; x < this.GRID_SIZE_X; x++) {
+            for (let y = 0; y < this.GRID_SIZE_Y; y++) {
+                const tileKey = `${x},${y}`;
+                const tileType = this.worldTiles[tileKey] || 'grass';
                 const pos = this.tileToScreen(x, y);
 
                 const tile = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
                 const points = [
-                    { x: pos.x, y: pos.y + this.TILE_HEIGHT / 2 },
-                    { x: pos.x + this.TILE_WIDTH / 2, y: pos.y + this.TILE_HEIGHT },
-                    { x: pos.x, y: pos.y + this.TILE_HEIGHT * 1.5 },
-                    { x: pos.x - this.TILE_WIDTH / 2, y: pos.y + this.TILE_HEIGHT }
+                    { x: pos.x, y: pos.y + this.TILE_HEIGHT / 2 },                     // Top point
+                    { x: pos.x + this.TILE_WIDTH / 2, y: pos.y + this.TILE_HEIGHT },       // Right point
+                    { x: pos.x, y: pos.y + this.TILE_HEIGHT * 1.5 },                   // Bottom point
+                    { x: pos.x - this.TILE_WIDTH / 2, y: pos.y + this.TILE_HEIGHT }        // Left point
                 ].map(p => `${p.x},${p.y}`).join(' ');
 
                 tile.setAttribute('points', points);
@@ -113,9 +117,7 @@ export class Game {
                 tilesGroup.appendChild(tile);
             }
         }
-
-        tilesGroup.setAttribute('transform', `translate(${viewCenterX}, ${viewCenterY})`);
-
+        // Ensure tiles are added before players
         const playersGroup = this.svg.getElementById('players-group');
         if (playersGroup) {
             this.svg.insertBefore(tilesGroup, playersGroup);
@@ -206,7 +208,7 @@ export class Game {
             const cursorTileY = Math.max(0, Math.min(this.GRID_SIZE_Y - 1, tileUnderCursor.y));
             
             const tileKey = `${cursorTileX},${cursorTileY}`;
-            const tileType = this.worldManager.getTileType(cursorTileX, cursorTileY) || 'unknown';
+            const tileType = this.worldTiles[tileKey] || 'unknown';
             
             // Update dev info with cursor position
             this.updateDevInfo(cursorTileX, cursorTileY, tileType);
@@ -282,6 +284,10 @@ export class Game {
 
         if (!this.players[clientId].animator) {
             this.players[clientId].animator = new CharacterAnimator(playerGroup);
+        }
+
+        if (clientId === this.room.clientId) {
+            this.cameraManager.updateCameraPosition(x, y, this.TILE_WIDTH, this.TILE_HEIGHT);
         }
 
         // Simple Z-ordering based on Y-coordinate (further back tiles drawn first)
@@ -365,13 +371,6 @@ export class Game {
     }
 
     initializeGame() {
-        const resizeGame = () => {
-            this.svg.setAttribute('width', window.innerWidth);
-            this.svg.setAttribute('height', window.innerHeight);
-        };
-        window.addEventListener('resize', resizeGame);
-        resizeGame();
-
         try {
             this.room.initialize();
             console.log('Websim initialized:', this.room.clientId);
@@ -392,11 +391,13 @@ export class Game {
                  const startY = Math.floor(this.GRID_SIZE_Y / 2);
                  // Ensure starting tile isn't water
                  let sx = startX, sy = startY;
-                 while (this.worldManager.getTileType(sx, sy) === 'water') {
+                 while (this.worldTiles[`${sx},${sy}`] === 'water') {
                      sx = Math.floor(Math.random() * this.GRID_SIZE_X);
                      sy = Math.floor(Math.random() * this.GRID_SIZE_Y);
                  }
                  this.room.updatePresence({ x: sx, y: sy });
+                 // Center camera on initial position
+                 this.cameraManager.updateCameraPosition(sx, sy, this.TILE_WIDTH, this.TILE_HEIGHT);
             }
 
 
